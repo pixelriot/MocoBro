@@ -1,13 +1,16 @@
 import { ZardButtonComponent } from '@/shared/components/button/button.component';
 import { ZardFormLabelComponent } from '@/shared/components/form/form.component';
-import { CommonModule } from '@angular/common';
-import { Component, OnInit } from '@angular/core';
-import { FormsModule } from '@angular/forms';
-import { ZardCardComponent } from './shared/components/card';
-import { ZardInputGroupComponent } from './shared/components/input-group';
-import { ZardIconComponent } from './shared/components/icon';
-import { ZardSelectComponent } from '@/shared/components/select/select.component';
 import { ZardSelectItemComponent } from '@/shared/components/select/select-item.component';
+import { ZardSelectComponent } from '@/shared/components/select/select.component';
+import { CommonModule } from '@angular/common';
+import { Component, inject, OnInit } from '@angular/core';
+import { FormsModule } from '@angular/forms';
+import { ApiService, MocoActivity, MocoPresence, MocoProject } from './services/api.service';
+import { ZardToastComponent } from './shared/components/toast/toast.component';
+import { ZardCardComponent } from './shared/components/card';
+import { ZardIconComponent } from './shared/components/icon';
+import { ZardInputGroupComponent } from './shared/components/input-group';
+import { toast } from 'ngx-sonner';
 
 @Component({
   selector: 'app-root',
@@ -22,113 +25,169 @@ import { ZardSelectItemComponent } from '@/shared/components/select/select-item.
     ZardIconComponent,
     ZardSelectComponent,
     ZardSelectItemComponent,
+    ZardToastComponent,
   ],
   templateUrl: './app.component.html',
   styleUrls: ['./app.component.scss']
 })
 export class AppComponent implements OnInit {
+  private api = inject(ApiService);
 
+  // --- State ---
+
+  selectedMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
   apiKey = '';
-  // currently selected month (first day of month)
-  selectedMonth: Date = ((): Date => {
-    const d = new Date();
-    return new Date(d.getFullYear(), d.getMonth(), 1);
-  })();
-  assignedProjects: any[] = [];
-  profileFirstName: string = '';
-
+  isLoggedIn = false;
+  profileFirstName = '';
+  isSending = false;
+  assignedProjects: MocoProject[] = [];
   selectedProjectId: number | null = null;
   selectedTaskId: number | null = null;
-  taskDescription: string = '';
-
-  get tasksForSelectedProject(): any[] {
-    const p = this.assignedProjects.find(x => x.id === this.selectedProjectId);
-    return p ? p.tasks ?? [] : [];
-  }
-
-  clearApiKey() {
-    this.apiKey = '';
-    this.profileFirstName = '';
-    try {
-      localStorage.removeItem('apiKey');
-    } catch (e) {
-      console.warn('Could not remove apiKey from localStorage', e);
-    }
-  }
-
-  onProjectSelect(value: string | string[]) {
-    if (Array.isArray(value)) {
-      this.selectedProjectId = value.length ? Number(value[0]) : null;
-    } else {
-      this.selectedProjectId = value ? Number(value) : null;
-    }
-    this.selectedTaskId = null;
-    this.saveSelectedProjectId();
-    this.saveSelectedTaskId();
-  }
-
-  onTaskSelect(value: string | string[]) {
-    if (Array.isArray(value)) {
-      this.selectedTaskId = value.length ? Number(value[0]) : null;
-    } else {
-      this.selectedTaskId = value ? Number(value) : null;
-    }
-    console.log('Selected task ID:', this.selectedTaskId);
-    console.log('Selected project ID:', this.selectedProjectId);
-    this.saveSelectedTaskId();
-  }
-
+  taskDescription = '';
   activitiesDates = new Set<string>();
   presencesDates = new Set<string>();
   presenceSecondsByDate = new Map<string, number>();
   lazyDates: string[] = [];
 
-  private static readonly API_BASE_URL = 'https://apicodo.mocoapp.com/api/v1/';
+  // --- Lifecycle ---
 
   async ngOnInit(): Promise<void> {
     const saved = localStorage.getItem('apiKey');
     if (saved) {
-      this.apiKey = saved;
+      this.setApiKey(saved);
       try {
         await this.getProfile();
-      } catch (e) {
-        console.warn('getProfile failed', e);
-      }
-      // fetch everything on startup when an API key is present
-      try {
         await this.runAll();
       } catch (e) {
-        console.warn('runAll on init failed', e);
+        console.warn('getProfile on init failed', e);
+        this.clearApiKey();
+        const msg = e instanceof Error ? e.message : String(e);
+        toast.error(msg || 'Login failed');
       }
     }
   }
 
+  // --- API key ---
+
+  private setApiKey(key: string): void {
+    this.apiKey = key;
+    this.api.setApiKey(key);
+  }
+
   async saveApiKey(value: string) {
-    console.log('Saving API key:', value);
-    this.apiKey = value ?? '';
+    this.setApiKey(value ?? '');
+    localStorage.setItem('apiKey', this.apiKey);
     try {
-      localStorage.setItem('apiKey', this.apiKey);
-    } catch (e) {
-      console.warn('Could not save apiKey to localStorage', e);
-    }
-    // when a new API key is confirmed, fetch all data
-    try {
-      // fetch profile for the new key first
-      try {
-        await this.getProfile();
-      } catch (e) {
-        console.warn('getProfile after saveApiKey failed', e);
-      }
+      await this.getProfile();
       await this.runAll();
     } catch (e) {
-      console.warn('runAll after saveApiKey failed', e);
+      this.clearApiKey();
+      const msg = e instanceof Error ? e.message : String(e);
+      toast.error(msg || 'Login failed');
+      throw e;
+    }
+  }
+
+  clearApiKey() {
+    this.setApiKey('');
+    this.profileFirstName = '';
+    localStorage.removeItem('apiKey');
+    this.isLoggedIn = false;
+  }
+
+  // --- Project / Task selection ---
+
+  get tasksForSelectedProject(): MocoProject['tasks'] {
+    return this.assignedProjects.find(x => x.id === this.selectedProjectId)?.tasks ?? [];
+  }
+
+  onProjectSelect(value: string | string[]) {
+    this.selectedProjectId = this.toNumberOrNull(value);
+    this.selectedTaskId = null;
+
+  }
+
+  onTaskSelect(value: string | string[]) {
+    this.selectedTaskId = this.toNumberOrNull(value);
+
+  }
+
+  private toNumberOrNull(value: string | string[]): number | null {
+    const raw = Array.isArray(value) ? value[0] : value;
+    return raw ? Number(raw) : null;
+  }
+
+  // --- API calls ---
+
+  private getMonthRange(): { from: string; to: string } {
+    const y = this.selectedMonth.getFullYear();
+    const m = this.selectedMonth.getMonth();
+    return {
+      from: new Date(y, m, 1).toISOString().slice(0, 10),
+      to: new Date(y, m + 1, 0).toISOString().slice(0, 10),
+    };
+  }
+
+  private async getPresences(): Promise<MocoPresence[]> {
+    const { from, to } = this.getMonthRange();
+    const res = await this.api.getPresences(from, to);
+    return res.data;
+  }
+
+  private async getActivities(): Promise<MocoActivity[]> {
+    const { from, to } = this.getMonthRange();
+    const res = await this.api.getActivities(from, to);
+    return res.data;
+  }
+
+  private async getAssigned(): Promise<MocoProject[]> {
+    const res = await this.api.getAssigned();
+    return res.data;
+  }
+
+  async getProfile() {
+    const res = await this.api.getProfile();
+    if (!res.ok) {
+      this.isLoggedIn = false;
+      throw new Error(`Profile request failed with status ${res.status}`);
+    }
+    const data = res.data as { first_name?: string } | null;
+    if (!data || !data.first_name) {
+      this.isLoggedIn = false;
+      throw new Error('Invalid profile data received');
+    }
+    this.profileFirstName = data.first_name;
+    this.isLoggedIn = true;
+    return data;
+  }
+
+  // --- Data fetching ---
+
+  async runAll(): Promise<void> {
+    try {
+      const [presences, activities, assigned] = await Promise.all([
+        this.getPresences(),
+        this.getActivities(),
+        this.getAssigned(),
+      ]);
+
+      console.log('Fetched data:', { presences, activities, assigned });
+
+      this.assignedProjects = Array.isArray(assigned) ? assigned : [];
+      this.restoreSavedSelections();
+      this.parseActivities(activities);
+      this.parsePresences(presences);
+    } catch (err) {
+      console.error('runAll error:', err);
     }
   }
 
   private async fetchMonthData(): Promise<void> {
     try {
-      const presences = await this.getPrecences();
-      const activities = await this.getActivities();
+      const [presences, activities] = await Promise.all([
+        this.getPresences(),
+        this.getActivities(),
+      ]);
       this.parseActivities(activities);
       this.parsePresences(presences);
     } catch (err) {
@@ -136,186 +195,7 @@ export class AppComponent implements OnInit {
     }
   }
 
-  async getPrecences(): Promise<any> {
-    const apiKey = this.apiKey || localStorage.getItem('apiKey') || '';
-    const from = new Date(this.selectedMonth.getFullYear(), this.selectedMonth.getMonth(), 1);
-    const to = new Date(this.selectedMonth.getFullYear(), this.selectedMonth.getMonth() + 1, 0);
-    const fromParam = from.toISOString().slice(0, 10);
-    const toParam = to.toISOString().slice(0, 10);
-    const url = `${AppComponent.API_BASE_URL}users/presences?from=${fromParam}&to=${toParam}`;
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'application/json',
-        },
-      });
-
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text);
-        console.log('getPrecences response:', json);
-        return json;
-      } catch (e) {
-        console.log('getPrecences response (text):', text);
-        return text;
-      }
-    } catch (err) {
-      console.error('getPrecences fetch error:', err);
-      throw err;
-    }
-  }
-
-  async getActivities(): Promise<any> {
-    const apiKey = this.apiKey || localStorage.getItem('apiKey') || '';
-    const from = new Date(this.selectedMonth.getFullYear(), this.selectedMonth.getMonth(), 1);
-    const to = new Date(this.selectedMonth.getFullYear(), this.selectedMonth.getMonth() + 1, 0);
-    const fromParam = from.toISOString().slice(0, 10);
-    const toParam = to.toISOString().slice(0, 10);
-    const url = `${AppComponent.API_BASE_URL}activities?from=${fromParam}&to=${toParam}`;
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'application/json',
-        },
-      });
-
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text);
-        console.log('getActivities response:', json);
-        return json;
-      } catch (e) {
-        console.log('getActivities response (text):', text);
-        return text;
-      }
-    } catch (err) {
-      console.error('getActivities fetch error:', err);
-      throw err;
-    }
-  }
-
-  async getAssigned(): Promise<any> {
-    const apiKey = this.apiKey || localStorage.getItem('apiKey') || '';
-    const url = `${AppComponent.API_BASE_URL}projects/assigned`;
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'application/json',
-        },
-      });
-
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text);
-        console.log('getAssigned response:', json);
-        return json;
-      } catch (e) {
-        console.log('getAssigned response (text):', text);
-        return text;
-      }
-    } catch (err) {
-      console.error('getAssigned fetch error:', err);
-    }
-  }
-
-  async getProfile(): Promise<any> {
-    const apiKey = this.apiKey || localStorage.getItem('apiKey') || '';
-    const url = `${AppComponent.API_BASE_URL}profile`;
-    try {
-      const res = await fetch(url, {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'application/json',
-        },
-      });
-
-      const text = await res.text();
-      try {
-        const json = JSON.parse(text);
-        console.log('getProfile response:', json);
-        this.profileFirstName = json?.first_name ?? '';
-        return json;
-      } catch (e) {
-        console.log('getProfile response (text):', text);
-        return text;
-      }
-    } catch (err) {
-      console.error('getProfile fetch error:', err);
-      throw err;
-    }
-  }
-
-  async runAll(): Promise<void> {
-    try {
-      const presences = await this.getPrecences();
-      const activities = await this.getActivities();
-      const assigned = await this.getAssigned();
-
-      // normalize and store assigned projects so selects render
-      const arr = Array.isArray(assigned) ? assigned : assigned?.data ?? assigned?.items ?? [];
-      this.assignedProjects = Array.isArray(arr) ? arr : [];
-      // attempt to restore saved selection if present
-      const savedProject = (() => {
-        try {
-          const s = localStorage.getItem('selectedProjectId');
-          return s != null ? Number(s) : null;
-        } catch (e) {
-          return null;
-        }
-      })();
-
-      const hasSavedProject = savedProject != null && this.assignedProjects.some(p => p.id === savedProject);
-      if (hasSavedProject) {
-        this.selectedProjectId = savedProject;
-      } else if (this.assignedProjects.length > 0 && this.selectedProjectId == null) {
-        this.selectedProjectId = this.assignedProjects[0].id;
-      }
-
-      // try to restore saved task id if it belongs to the selected project
-      const savedTask = (() => {
-        try {
-          const s = localStorage.getItem('selectedTaskId');
-          return s != null ? Number(s) : null;
-        } catch (e) {
-          return null;
-        }
-      })();
-
-      if (this.selectedProjectId != null && savedTask != null) {
-        const proj = this.assignedProjects.find(p => p.id === this.selectedProjectId);
-        const tasks = proj?.tasks ?? [];
-        const hasTask = Array.isArray(tasks) && tasks.some((t: any) => t.id === savedTask);
-        this.selectedTaskId = hasTask ? savedTask : null;
-      }
-
-      // restore saved task description if available
-      try {
-        const savedDesc = localStorage.getItem('taskDescription');
-        if (savedDesc != null) this.taskDescription = savedDesc;
-      } catch (e) {
-        // ignore
-      }
-
-      // persist whichever selection we ended up with
-      this.saveSelectedProjectId();
-      this.saveSelectedTaskId();
-
-      this.parseActivities(activities);
-      this.parsePresences(presences);
-
-      // lazyDates are computed in parse* helpers
-      console.log('RUN results:', { presences, activities, assigned });
-    } catch (err) {
-      console.error('runAll error:', err);
-    }
-  }
+  // --- Month navigation ---
 
   previousMonth(): void {
     const y = this.selectedMonth.getFullYear();
@@ -331,98 +211,51 @@ export class AppComponent implements OnInit {
     this.fetchMonthData();
   }
 
+  // --- Send activities ---
+
   async onSendClicked(): Promise<void> {
-    if (!this.canSend) {
-      console.warn('Cannot send: missing project, task or description');
-      return;
-    }
-
-    if (!this.lazyDates || this.lazyDates.length === 0) {
-      console.warn('No lazy dates to send');
-      return;
-    }
-
-    // ensure latest description is persisted
-    this.saveTaskDescription();
-
-    const apiKey = this.apiKey || localStorage.getItem('apiKey') || '';
-    const url = `${AppComponent.API_BASE_URL}activities/bulk`;
+    if (!this.canSend || !this.lazyDates.length) return;
+    this.saveSelections();
 
     const activities = this.lazyDates
       .map(d => {
         const seconds = this.presenceSecondsByDate.get(d);
-        if (!seconds || seconds <= 0) {
-          console.warn('Skipping date with missing or invalid presence duration', d);
-          return null;
-        }
-
+        if (!seconds || seconds <= 0) return null;
         return {
           date: d,
           description: this.taskDescription,
-          project_id: Number(this.selectedProjectId),
-          task_id: Number(this.selectedTaskId),
+          project_id: this.selectedProjectId!,
+          task_id: this.selectedTaskId!,
           seconds,
         };
       })
-      .filter((item): item is {
-        date: string;
-        description: string;
-        project_id: number;
-        task_id: number;
-        seconds: number;
-      } => item !== null);
+      .filter((item): item is NonNullable<typeof item> => item !== null);
 
-    if (activities.length === 0) {
-      console.warn('No activities with valid presence duration to send');
-      return;
-    }
+    console.log('Prepared activities to send:', activities);
+    if (activities.length === 0) return;
 
-    const payload = { activities };
-
-    console.log('Sending activities/bulk request with payload:', payload);
-
+    this.isSending = true;
     try {
-      const res = await fetch(url, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${apiKey}`,
-          Accept: 'application/json',
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
-
-      const text = await res.text();
-      let json: any = null;
-      try {
-        json = JSON.parse(text);
-      } catch (e) {
-        json = text;
-      }
-
+      const res = await this.api.postActivitiesBulk({ activities });
       if (!res.ok) {
-        console.error('activities/bulk failed', res.status, json);
+        console.error('activities/bulk failed', res.status, res.data);
+        const detail = res.data && typeof res.data === 'string' ? res.data : JSON.stringify(res.data || {});
+        toast.error(`Senden fehlgeschlagen (${res.status})` + (detail ? `: ${detail}` : ''));
         return;
       }
-
-      console.log('activities/bulk response:', json);
-
-      // Refresh data to reflect newly created activities
-      try {
-        await this.runAll();
-      } catch (e) {
-        console.warn('runAll after send failed', e);
-      }
+      toast.success(`Erfolgreich ${activities.length} Aktivität(en) gesendet`);
+      await this.runAll();
     } catch (err) {
-      console.error('onSendClicked fetch error:', err);
+      console.error('onSendClicked error:', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      toast.error(msg || 'Fehler beim Senden');
+    } finally {
+      this.isSending = false;
     }
   }
 
   get canSend(): boolean {
-    const hasProject = this.selectedProjectId !== null && this.selectedProjectId !== undefined;
-    const hasTask = this.selectedTaskId !== null && this.selectedTaskId !== undefined;
-    const hasDesc = !!this.taskDescription && this.taskDescription.trim().length > 0;
-    return hasProject && hasTask && hasDesc;
+    return this.selectedProjectId != null && this.selectedTaskId != null && !!this.taskDescription?.trim();
   }
 
   get presentDaysCount(): number {
@@ -433,150 +266,79 @@ export class AppComponent implements OnInit {
     return this.activitiesDates.size;
   }
 
-  private parseActivities(payload: any): void {
+  // --- Parsing ---
+
+  private parseActivities(items: MocoActivity[]): void {
     this.activitiesDates.clear();
-    if (!payload) return;
-    // payload may be array or object containing array
-    const items = Array.isArray(payload) ? payload : payload?.data ?? (payload.items ?? []);
-    if (!Array.isArray(items)) return;
-    for (const it of items) {
-      const dateStr = this.extractDateString(it);
-      if (dateStr) this.activitiesDates.add(dateStr);
+
+    if (!Array.isArray(items)) {
+      this.computeLazyDates();
+      return;
     }
+
+    for (const it of items) {
+      if (typeof it.date === 'string' && it.date) {
+        this.activitiesDates.add(it.date.slice(0, 10));
+      }
+    }
+
     this.computeLazyDates();
   }
 
-  private parsePresences(payload: any): void {
+  private parsePresences(items: MocoPresence[]): void {
     this.presencesDates.clear();
     this.presenceSecondsByDate.clear();
-    if (!payload) return;
-    const items = Array.isArray(payload) ? payload : payload?.data ?? (payload.items ?? []);
-    if (!Array.isArray(items)) return;
+
+    if (!Array.isArray(items)) {
+      this.computeLazyDates();
+      return;
+    }
+
     for (const it of items) {
-      // prefer explicit `date` field when present
-      if (typeof it === 'string') {
-        this.presencesDates.add(it.slice(0, 10));
-        continue;
-      }
+      const date = typeof it.date === 'string' ? it.date.slice(0, 10) : null;
+      if (!date) continue;
 
-      if (it && typeof it.date === 'string') {
-        const date = it.date.slice(0, 10);
-        this.presencesDates.add(date);
-        const seconds = this.extractPresenceSlotSeconds(it);
-        if (seconds > 0) {
-          this.presenceSecondsByDate.set(date, (this.presenceSecondsByDate.get(date) ?? 0) + seconds);
-        }
-        continue;
-      }
+      this.presencesDates.add(date);
 
-      // fallback: presence entries may be ranges or other single-date fields
-      const from = it.from ?? it.start ?? it.from_date ?? it.start_date;
-      const to = it.to ?? it.end ?? it.to_date ?? it.end_date;
-      if (from && to && typeof from === 'string' && typeof to === 'string') {
-        this.addDateRangeToSet(from.slice(0, 10), to.slice(0, 10), this.presencesDates);
-        continue;
-      }
+      const from = typeof it.from === 'string' ? it.from : null;
+      const to = typeof it.to === 'string' ? it.to : null;
 
-      const single = it.day ?? it.created_at ?? it.activity_date;
-      if (single && typeof single === 'string') {
-        this.presencesDates.add(single.slice(0, 10));
+      if (!from || !to) continue;
+
+      const seconds = this.clockDiffSeconds(from, to);
+      if (seconds > 0) {
+        this.presenceSecondsByDate.set(date, (this.presenceSecondsByDate.get(date) ?? 0) + seconds);
       }
     }
+
     this.computeLazyDates();
   }
 
-  private extractPresenceSlotSeconds(item: any): number {
-    if (!item || typeof item !== 'object') return 0;
 
-    const from = item.from;
-    const to = item.to;
-    if (typeof from !== 'string' || typeof to !== 'string') return 0;
-
-    const fromSeconds = this.parseClockToSeconds(from);
-    const toSeconds = this.parseClockToSeconds(to);
-    if (fromSeconds == null || toSeconds == null || toSeconds <= fromSeconds) return 0;
-
-    return toSeconds - fromSeconds;
+  private clockDiffSeconds(from: string, to: string): number {
+    const f = this.parseClockToSeconds(from);
+    const t = this.parseClockToSeconds(to);
+    return (f != null && t != null && t > f) ? t - f : 0;
   }
 
   private parseClockToSeconds(value: string): number | null {
-    const match = value.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    const match = value?.trim().match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
     if (!match) return null;
 
-    const hours = Number(match[1]);
-    const minutes = Number(match[2]);
-    const seconds = match[3] != null ? Number(match[3]) : 0;
+    const h = Number(match[1]);
+    const m = Number(match[2]);
+    const s = match[3] != null ? Number(match[3]) : 0;
 
-    if (
-      Number.isNaN(hours) ||
-      Number.isNaN(minutes) ||
-      Number.isNaN(seconds) ||
-      hours < 0 ||
-      hours > 23 ||
-      minutes < 0 ||
-      minutes > 59 ||
-      seconds < 0 ||
-      seconds > 59
-    ) {
-      return null;
-    }
-
-    return hours * 3600 + minutes * 60 + seconds;
+    if (h > 23 || m > 59 || (s ?? 0) > 59) return null;
+    return h * 3600 + m * 60 + (s ?? 0);
   }
 
   private computeLazyDates(): void {
-    this.lazyDates = Array.from(this.presencesDates).filter(d => !this.activitiesDates.has(d)).sort();
-    console.log('Dates with presence but no activity:', this.lazyDates);
+    this.lazyDates = [...this.presencesDates].filter(d => !this.activitiesDates.has(d)).sort();
   }
 
-  private extractDateString(item: any): string | null {
-    if (!item) return null;
-    if (typeof item === 'string') return item.slice(0, 10);
-    const candidates = ['date', 'day', 'created_at', 'activity_date', 'start', 'from', 'timestamp'];
-    for (const key of candidates) {
-      if (item[key] && typeof item[key] === 'string') return item[key].slice(0, 10);
-    }
-    return null;
-  }
+  // --- Calendar grid ---
 
-  private addDateRangeToSet(fromIso: string, toIso: string, set: Set<string>) {
-    const from = new Date(fromIso);
-    const to = new Date(toIso);
-    for (let d = new Date(from); d <= to; d.setDate(d.getDate() + 1)) {
-      set.add(this.formatDateKey(d));
-    }
-  }
-
-  get weeks(): Date[][] {
-    const monthStart = new Date(this.selectedMonth.getFullYear(), this.selectedMonth.getMonth(), 1);
-    const start = this.startOfWeek(monthStart);
-    const monthEnd = new Date(this.selectedMonth.getFullYear(), this.selectedMonth.getMonth() + 1, 0);
-    const end = this.endOfWeek(monthEnd);
-    const weeks: Date[][] = [];
-    let cur = new Date(start);
-    while (cur <= end) {
-      const week: Date[] = [];
-      for (let i = 0; i < 7; i++) {
-        week.push(new Date(cur));
-        cur.setDate(cur.getDate() + 1);
-      }
-      weeks.push(week);
-    }
-    return weeks;
-  }
-
-  private endOfWeek(date: Date): Date {
-    const s = this.startOfWeek(date);
-    const e = new Date(s);
-    e.setDate(e.getDate() + 6);
-    e.setHours(23, 59, 59, 999);
-    return e;
-  }
-
-  /**
-   * Returns an array of months. Each month has a label and array of weeks.
-   * Weeks are arrays of 7 Date|null values where null represents a day outside the current month.
-   */
   get monthsGrid(): { label: string; weeks: (Date | null)[][] }[] {
     const year = this.selectedMonth.getFullYear();
     const month = this.selectedMonth.getMonth();
@@ -592,11 +354,7 @@ export class AppComponent implements OnInit {
       const week: (Date | null)[] = [];
       for (let i = 0; i < 7; i++) {
         const d = new Date(cur);
-        if (d >= monthStart && d <= monthEnd) {
-          week.push(d);
-        } else {
-          week.push(null);
-        }
+        week.push(d >= monthStart && d <= monthEnd ? d : null);
         cur.setDate(cur.getDate() + 1);
       }
       weeks.push(week);
@@ -607,17 +365,16 @@ export class AppComponent implements OnInit {
 
   private startOfWeek(date: Date): Date {
     const d = new Date(date);
-    const day = d.getDay(); // Sunday=0
-    const diff = (day + 6) % 7; // days since Monday
-    d.setDate(d.getDate() - diff);
+    d.setDate(d.getDate() - ((d.getDay() + 6) % 7));
     d.setHours(0, 0, 0, 0);
     return d;
   }
 
-  monthLabel(week: Date[]): string {
-    if (!week || week.length === 0) return '';
-    const d = week[0];
-    return d.toLocaleString(undefined, { month: 'short', year: 'numeric' });
+  private endOfWeek(date: Date): Date {
+    const s = this.startOfWeek(date);
+    s.setDate(s.getDate() + 6);
+    s.setHours(23, 59, 59, 999);
+    return s;
   }
 
   formatDateKey(date: Date | null): string {
@@ -629,49 +386,50 @@ export class AppComponent implements OnInit {
   }
 
   formatDayTitle(date: Date | null): string {
-    if (!date) return '';
-    return date.toLocaleDateString();
+    return date?.toLocaleDateString() ?? '';
   }
 
-  private saveSelectedProjectId(): void {
-    try {
-      if (this.selectedProjectId != null) {
-        localStorage.setItem('selectedProjectId', String(this.selectedProjectId));
-      } else {
-        localStorage.removeItem('selectedProjectId');
+  // --- LocalStorage persistence ---
+
+  private restoreSavedSelections(): void {
+    const raw = localStorage.getItem('savedSelections');
+    if (raw) {
+      try {
+        const parsed = JSON.parse(raw) as { projectId?: number | null; taskId?: number | null; description?: string };
+        if (parsed.projectId != null && this.assignedProjects.some(p => p.id === parsed.projectId)) {
+          this.selectedProjectId = parsed.projectId;
+        } else if (this.assignedProjects.length > 0 && this.selectedProjectId == null) {
+          this.selectedProjectId = this.assignedProjects[0].id;
+        }
+
+        if (this.selectedProjectId != null && parsed.taskId != null) {
+          const tasks = this.assignedProjects.find(p => p.id === this.selectedProjectId)?.tasks ?? [];
+          this.selectedTaskId = tasks.some(t => t.id === parsed.taskId) ? parsed.taskId : null;
+        }
+
+        if (parsed.description) this.taskDescription = parsed.description;
+      } catch {
+        // ignore malformed savedSelections
+        if (this.assignedProjects.length > 0 && this.selectedProjectId == null) {
+          this.selectedProjectId = this.assignedProjects[0].id;
+        }
       }
-    } catch (e) {
-      console.warn('Could not persist selectedProjectId', e);
+    } else {
+      if (this.assignedProjects.length > 0 && this.selectedProjectId == null) {
+        this.selectedProjectId = this.assignedProjects[0].id;
+      }
     }
   }
-
-  private saveSelectedTaskId(): void {
-    try {
-      if (this.selectedTaskId != null) {
-        localStorage.setItem('selectedTaskId', String(this.selectedTaskId));
-      } else {
-        localStorage.removeItem('selectedTaskId');
-      }
-    } catch (e) {
-      console.warn('Could not persist selectedTaskId', e);
-    }
+  private saveSelections(): void {
+    const payload = {
+      projectId: this.selectedProjectId ?? null,
+      taskId: this.selectedTaskId ?? null,
+      description: this.taskDescription?.trim() ?? '',
+    };
+    localStorage.setItem('savedSelections', JSON.stringify(payload));
   }
 
-  private saveTaskDescription(): void {
-    try {
-      if (this.taskDescription != null && this.taskDescription.trim().length > 0) {
-        localStorage.setItem('taskDescription', this.taskDescription);
-      } else {
-        localStorage.removeItem('taskDescription');
-      }
-    } catch (e) {
-      console.warn('Could not persist taskDescription', e);
-    }
-  }
-
-  // optional: call from template via (ngModelChange) to auto-save while typing
   onTaskDescriptionChange(value: string): void {
     this.taskDescription = value ?? '';
-    this.saveTaskDescription();
   }
 }

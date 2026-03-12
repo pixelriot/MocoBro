@@ -1,16 +1,16 @@
 <main class="flex flex-col justify-start min-h-screen gap-6 max-w-160 m-auto">
 
-    <div class="flex w-full items-center gap-8 justify-between">
+    <header class="flex w-full items-center gap-8 justify-between">
         <h1 class="text-4xl">MOCO BRO</h1>
         @if (profileFirstName) {
         <div class="text-muted-foreground text-sm">Hallo {{ profileFirstName }}</div>
         }
-        @if (apiKey) {
+        @if (isLoggedIn) {
         <button z-button zType="ghost" (click)="clearApiKey()">Abmelden</button>
         }
-    </div>
+    </header>
 
-    @if (!apiKey) {
+    @if (!isLoggedIn) {
 
     <z-card class="w-100 mx-auto">
         <label z-form-label for="apiKey">API Key</label>
@@ -23,6 +23,7 @@
         <p class="text-md mt-4">Du findest deinen Api-Key in MOCO unter Profil - Integrationen - "Persönlicher API
             Schlüssel"
         </p>
+
     </z-card>
 
     } @else {
@@ -62,8 +63,8 @@
         <z-card>
             <div class="flex flex-row items-center gap-10 mb-4 justify-between">
                 <div>Anwesent: {{ presentDaysCount }}</div>
-                <div>Gearbeitet: <span class="text-red-600">{{activityDaysCount}} </span></div>
-                <div>Faule Tage: <span class="text-green-400"> {{ presentDaysCount - activityDaysCount
+                <div>Gearbeitet: <span class="text-green-400">{{activityDaysCount}} </span></div>
+                <div>Faule Tage: <span class="text-red-600"> {{ presentDaysCount - activityDaysCount
                         }}</span>
                 </div>
             </div>
@@ -98,7 +99,8 @@
                     (ngModelChange)="onTaskDescriptionChange($event)" placeholder="Was hast du gemacht?" />
             </z-input-group>
 
-            <z-button class="mt-4 w-full" (click)="onSendClicked()" [zDisabled]="!canSend">ABSENDEN</z-button>
+            <z-button class="mt-4 w-full" (click)="onSendClicked()" [zDisabled]="!canSend || isSending"
+                [zLoading]="isSending">ABSENDEN</z-button>
 
         </z-card>
 
@@ -107,3 +109,5 @@
     }
 
 </main>
+
+<z-toaster />
