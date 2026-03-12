@@ -61,31 +61,42 @@
         </z-card>
 
         <z-card>
-            <div class="flex flex-row items-center gap-10 mb-4 justify-between">
-                <div>Anwesent: {{ presentDaysCount }}</div>
-                <div>Gearbeitet: <span class="text-green-400">{{activityDaysCount}} </span></div>
-                <div>Faule Tage: <span class="text-red-600"> {{ presentDaysCount - activityDaysCount
-                        }}</span>
+            <div class="flex flex-row gap-10 mb-4 justify-between">
+                <div>
+                    <h4>Anwesent:</h4>
+                    <div class="border-2 border-gray-700 rounded w-7 h-7 flex items-center justify-center">{{
+                        presentDaysCount }}</div>
+                </div>
+                <div>
+                    <h4>Gearbeitet:</h4>
+                    <div class="bg-green-400 rounded w-7 h-7 flex items-center justify-center">{{activityDaysCount}}
+                    </div>
+                </div>
+                <div>
+                    <h4>Faule Tage:</h4>
+                    <div class="bg-red-600 rounded w-7 h-7 flex items-center justify-center"> {{ presentDaysCount -
+                        activityDaysCount }}
+                    </div>
                 </div>
             </div>
 
             <p class="mb-4">Sag deinem Chef an welchen Projekten du gearbeitet hast:</p>
 
-            <div class="flex items-center gap-3">
-                <div>
+            <div class="flex gap-3">
+                <div class="flex-1">
                     <label z-form-label for="project">Projekt</label>
                     <z-select [zValue]="selectedProjectId?.toString() ?? ''"
-                        (zSelectionChange)="onProjectSelect($event)" zPlaceholder="-- Projekt --" class="ml-2">
+                        (zSelectionChange)="onProjectSelect($event)" zPlaceholder="-- Projekt --">
                         @for (proj of assignedProjects; track proj.id) {
                         <z-select-item [zValue]="proj.id.toString()">{{ proj.identifier ? (proj.identifier + ' - ') : ''
                             }}{{ proj.name }}</z-select-item>
                         }
                     </z-select>
                 </div>
-                <div>
+                <div class="flex-1">
                     <label z-form-label for="task">Aufgabe</label>
                     <z-select [zValue]="selectedTaskId?.toString() ?? ''" (zSelectionChange)="onTaskSelect($event)"
-                        zPlaceholder="-- Aufgabe --" class="ml-2">
+                        zPlaceholder="-- Aufgabe --">
                         @for (task of tasksForSelectedProject; track task.id) {
                         <z-select-item [zValue]="task.id.toString()">{{ task.name }}</z-select-item>
                         }
