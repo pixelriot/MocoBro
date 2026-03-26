@@ -4,7 +4,7 @@
   "appConfigFile": "src/app/app.config.ts",
   "packageManager": "npm",
   "tailwind": {
-    "css": "src/styles.scss",
+    "css": "src/styles.css",
     "baseColor": "neutral"
   },
   "baseUrl": "src/app",

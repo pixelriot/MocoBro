@@ -2,12 +2,14 @@
 
     <header class="flex w-full items-center gap-8 justify-between">
         <h1 class="text-4xl">MOCO BRO</h1>
-        @if (profileFirstName) {
-        <div class="text-muted-foreground text-sm">Hallo {{ profileFirstName }}</div>
-        }
-        @if (isLoggedIn) {
-        <button z-button zType="ghost" (click)="clearApiKey()">Abmelden</button>
-        }
+        <span class="flex flex-row gap-2 items-center">
+            @if (profileFirstName) {
+            <div class="text-muted-foreground text-sm">Hallo {{ profileFirstName }}</div>
+            }
+            @if (isLoggedIn) {
+            <button z-button zType="ghost" (click)="clearApiKey()">Abmelden</button>
+            }
+        </span>
     </header>
 
     @if (!isLoggedIn) {
@@ -104,14 +106,14 @@
                 </div>
             </div>
 
-            <label z-form-label for="taskDescription">Task description</label>
+            <label z-form-label for="taskDescription">Was hast du gemacht?</label>
             <z-input-group>
                 <input z-input id="taskDescription" [(ngModel)]="taskDescription"
                     (ngModelChange)="onTaskDescriptionChange($event)" placeholder="Was hast du gemacht?" />
             </z-input-group>
 
             <z-button class="mt-4 w-full" (click)="onSendClicked()" [zDisabled]="!canSend || isSending"
-                [zLoading]="isSending">ABSENDEN</z-button>
+                [zLoading]="isSending">WEG DAMIT</z-button>
 
         </z-card>
 
