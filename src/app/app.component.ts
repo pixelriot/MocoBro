@@ -87,6 +87,8 @@ export class AppComponent implements OnInit {
   activitiesByDate = new Map<string, ActivityRef[]>();
   lazyDates: string[] = [];
   isDeletingConflicts = false;
+  /** true, wenn der API-Key Abwesenheitsanträge nicht lesen darf (403). */
+  absenceRequestsForbidden = false;
   /** Tage mit gebuchten Stunden, die inzwischen ganztägig abwesend sind. */
   conflictDates = new Set<string>();
 
@@ -113,6 +115,7 @@ export class AppComponent implements OnInit {
   private setApiKey(key: string): void {
     this.apiKey = key;
     this.api.setApiKey(key);
+    this.absenceRequestsForbidden = false;
   }
 
   async saveApiKey(value: string) {
@@ -183,7 +186,7 @@ export class AppComponent implements OnInit {
 
   private async getSchedules(): Promise<MocoSchedule[]> {
     const { from, to } = this.getMonthRange();
-    const res = await this.api.getSchedules(from, to);
+    const res = await this.api.getSchedules(from, to, this.profileUserId);
     if (!res.ok) {
       console.warn('schedules request failed', res.status, res.data);
       return [];
@@ -192,9 +195,13 @@ export class AppComponent implements OnInit {
   }
 
   private async getPendingAbsenceRequests(): Promise<MocoAbsenceRequest[]> {
-    const res = await this.api.getAbsenceRequests('pending');
+    if (this.absenceRequestsForbidden) return [];
+
+    const res = await this.api.getAbsenceRequests('pending', this.profileUserId);
     if (!res.ok) {
       console.warn('absence_requests request failed', res.status, res.data);
+      // 403: der Key darf Anträge nicht lesen – nicht bei jedem Monatswechsel erneut versuchen.
+      if (res.status === 403 || res.status === 401) this.absenceRequestsForbidden = true;
       return [];
     }
     return Array.isArray(res.data) ? res.data : [];
@@ -478,9 +485,9 @@ export class AppComponent implements OnInit {
     return this.absenceFor(date)?.pending === true;
   }
 
-  /** Anwesenheitstage, die wegen einer Abwesenheit nicht gebucht werden. */
-  get skippedDaysCount(): number {
-    return [...this.presencesDates].filter(d => !this.activitiesDates.has(d) && this.isFullDayAbsence(d)).length;
+  /** Ganztägige Abwesenheiten im angezeigten Monat. */
+  get absenceDaysCount(): number {
+    return [...this.absencesByDate.values()].filter(a => a.am && a.pm).length;
   }
 
   get pendingAbsenceDaysCount(): number {

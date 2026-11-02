@@ -104,8 +104,33 @@ export class ApiService {
         return { ok: res.ok, status: res.status, data };
     }
 
+    /**
+     * Moco liefert Listen seitenweise (max. 100). Ohne Pagination bricht eine
+     * Abfrage still ab – genau das hat den halben Monat verschluckt.
+     */
+    private async doFetchAllPages<T>(url: string): Promise<ApiResponse<T[]>> {
+        const perPage = 100;
+        const maxPages = 20;
+        const all: T[] = [];
+        let status = 200;
+
+        for (let page = 1; page <= maxPages; page++) {
+            const separator = url.includes('?') ? '&' : '?';
+            const res = await this.doFetch<T[]>(`${url}${separator}page=${page}&per_page=${perPage}`);
+
+            if (!res.ok) return res as ApiResponse<T[]>;
+            if (!Array.isArray(res.data)) return { ok: true, status: res.status, data: all };
+
+            status = res.status;
+            all.push(...res.data);
+            if (res.data.length < perPage) break;
+        }
+
+        return { ok: true, status, data: all };
+    }
+
     getPresences(from: string, to: string) {
-        return this.doFetch<MocoPresence[]>(`${this.base}users/presences?from=${from}&to=${to}`);
+        return this.doFetchAllPages<MocoPresence>(`${this.base}users/presences?from=${from}&to=${to}`);
     }
 
     /**
@@ -114,21 +139,29 @@ export class ApiService {
      */
     getActivities(from: string, to: string, userId: number | null) {
         const user = userId != null ? `&user_id=${userId}` : '';
-        return this.doFetch<MocoActivity[]>(`${this.base}activities?from=${from}&to=${to}${user}`);
+        return this.doFetchAllPages<MocoActivity>(`${this.base}activities?from=${from}&to=${to}${user}`);
     }
 
     deleteActivity(id: number) {
         return this.doFetch(`${this.base}activities/${id}`, { method: 'DELETE' });
     }
 
-    getSchedules(from: string, to: string) {
-        return this.doFetch<MocoSchedule[]>(`${this.base}schedules?from=${from}&to=${to}&per_page=100`);
+    /**
+     * Der Abwesenheitskalender ist teamweit sichtbar – ohne user_id kommen die
+     * Urlaube der Kolleginnen und Kollegen mit zurück.
+     */
+    getSchedules(from: string, to: string, userId: number | null) {
+        const user = userId != null ? `&user_id=${userId}` : '';
+        return this.doFetchAllPages<MocoSchedule>(`${this.base}schedules?from=${from}&to=${to}${user}`);
     }
 
     /** /users/absence_requests kennt keinen from/to-Filter – Datumsfilter passiert im Client. */
-    getAbsenceRequests(status?: 'pending' | 'approved') {
-        const query = status ? `?status=${status}&per_page=100` : '?per_page=100';
-        return this.doFetch<MocoAbsenceRequest[]>(`${this.base}users/absence_requests${query}`);
+    getAbsenceRequests(status: 'pending' | 'approved' | null, userId: number | null) {
+        const params = [
+            status ? `status=${status}` : '',
+            userId != null ? `user_id=${userId}` : '',
+        ].filter(Boolean).join('&');
+        return this.doFetchAllPages<MocoAbsenceRequest>(`${this.base}users/absence_requests${params ? '?' + params : ''}`);
     }
 
     getAssigned() {
