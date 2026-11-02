@@ -45,9 +45,13 @@
                 @for (week of month.weeks; track $index) {
                 <div class="flex gap-1">
                     @for (day of week; track (day ? formatDateKey(day) : $index)) {
-                    <div class="w-7 h-7 rounded flex-shrink-0 flex items-center justify-center text-xs"
+                    <div class="relative overflow-hidden w-7 h-7 rounded flex-shrink-0 flex items-center justify-center text-xs"
                         [ngClass]="dayClasses(day)" [title]="formatDayTitle(day)">
-                        {{ day ? day.getDate() : '' }}
+                        @if (halfDayAbsence(day); as half) {
+                        <span class="absolute inset-y-0 w-1/2 bg-blue-300"
+                            [ngClass]="half === 'am' ? 'left-0' : 'right-0'"></span>
+                        }
+                        <span class="relative">{{ day ? day.getDate() : '' }}</span>
                     </div>
                     }
                 </div>
@@ -81,13 +85,6 @@
                     </div>
                 </div>
             </div>
-
-            @if (absenceRequestsForbidden) {
-            <p class="text-sm text-muted-foreground mb-4">
-                Dein API-Key darf Abwesenheitsanträge nicht lesen (403). Noch nicht bestätigte Urlaubsanträge
-                werden deshalb nur erkannt, wenn sie schon im Abwesenheitskalender stehen.
-            </p>
-            }
 
             @if (pendingAbsenceDaysCount > 0) {
             <p class="text-sm text-muted-foreground mb-4">

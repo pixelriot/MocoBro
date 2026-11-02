@@ -485,9 +485,16 @@ export class AppComponent implements OnInit {
     return this.absenceFor(date)?.pending === true;
   }
 
-  /** Ganztägige Abwesenheiten im angezeigten Monat. */
+  /** Welche Tageshälfte abwesend ist – null bei ganzen Tagen und Tagen ohne Abwesenheit. */
+  halfDayAbsence(date: Date | null): 'am' | 'pm' | null {
+    const absence = this.absenceFor(date);
+    if (!absence || (absence.am && absence.pm)) return null;
+    return absence.am ? 'am' : 'pm';
+  }
+
+  /** Tage mit Abwesenheit im angezeigten Monat, halbe Tage eingeschlossen. */
   get absenceDaysCount(): number {
-    return [...this.absencesByDate.values()].filter(a => a.am && a.pm).length;
+    return this.absencesByDate.size;
   }
 
   get pendingAbsenceDaysCount(): number {
