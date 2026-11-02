@@ -45,12 +45,8 @@
                 @for (week of month.weeks; track $index) {
                 <div class="flex gap-1">
                     @for (day of week; track (day ? formatDateKey(day) : $index)) {
-                    <div class="w-7 h-7 rounded flex-shrink-0 flex items-center justify-center text-xs" [ngClass]="{
-                                       'bg-gray-300': day && !activitiesDates.has(formatDateKey(day)),
-                                       'bg-green-400': day && activitiesDates.has(formatDateKey(day)),
-                                       'bg-red-600': day && presencesDates.has(formatDateKey(day)) && !activitiesDates.has(formatDateKey(day)),
-                                       'border-2 border-gray-700': day && presencesDates.has(formatDateKey(day)),
-                                    }" [title]="formatDayTitle(day)">
+                    <div class="w-7 h-7 rounded flex-shrink-0 flex items-center justify-center text-xs"
+                        [ngClass]="dayClasses(day)" [title]="formatDayTitle(day)">
                         {{ day ? day.getDate() : '' }}
                     </div>
                     }
@@ -76,11 +72,51 @@
                 </div>
                 <div>
                     <h4>Faule Tage:</h4>
-                    <div class="bg-red-600 rounded w-7 h-7 flex items-center justify-center"> {{ presentDaysCount -
-                        activityDaysCount }}
+                    <div class="bg-red-600 rounded w-7 h-7 flex items-center justify-center"> {{ lazyDates.length }}
+                    </div>
+                </div>
+                <div>
+                    <h4>Abwesend:</h4>
+                    <div class="bg-blue-300 rounded w-7 h-7 flex items-center justify-center">{{ skippedDaysCount }}
                     </div>
                 </div>
             </div>
+
+            @if (pendingAbsenceDaysCount > 0) {
+            <p class="text-sm text-muted-foreground mb-4">
+                <span class="inline-block w-3 h-3 rounded ring-2 ring-amber-500 align-middle"></span>
+                {{ pendingAbsenceDaysCount }} Tag(e) mit noch nicht bestätigter Abwesenheit – diese werden nicht
+                gebucht.
+            </p>
+            }
+
+            @if (conflicts.length > 0) {
+            <div class="text-sm border-2 border-purple-600 rounded p-3 mb-4">
+                <p class="font-medium mb-2">
+                    <span class="inline-block w-3 h-3 rounded ring-2 ring-purple-600 align-middle"></span>
+                    Schiefstand: {{ conflicts.length }} Tag(e) mit Stunden auf einem Abwesenheitstag
+                </p>
+                <ul class="flex flex-col gap-1">
+                    @for (conflict of conflicts; track conflict.key) {
+                    <li class="flex items-center justify-between gap-2">
+                        <span class="text-muted-foreground">
+                            {{ conflict.label }} – {{ conflict.absence }}@if (conflict.pending) {<span> (Antrag
+                                offen)</span>}@if (conflict.billed > 0) {<span> – {{ conflict.billed }} abgerechnet</span>}
+                        </span>
+                        @if (conflict.deletable > 0) {
+                        <z-button zType="ghost" zSize="sm" [zDisabled]="isDeletingConflicts"
+                            (click)="confirmDeleteConflicts(conflict.key)">Löschen</z-button>
+                        }
+                    </li>
+                    }
+                </ul>
+                @if (deletableConflictCount > 1) {
+                <z-button class="mt-2 w-full" zType="destructive" zSize="sm" [zDisabled]="isDeletingConflicts"
+                    [zLoading]="isDeletingConflicts" (click)="confirmDeleteConflicts()">Alle {{ deletableConflictCount
+                    }} Buchungen löschen</z-button>
+                }
+            </div>
+            }
 
             <p class="mb-4">Sag deinem Chef an welchen Projekten du gearbeitet hast:</p>
 

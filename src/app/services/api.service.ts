@@ -19,12 +19,50 @@ export interface MocoPresence {
 }
 
 export interface MocoActivity {
+    id: number;
     date: string;
     seconds?: number;
+    /** Abgerechnete Aktivitäten lassen sich nicht mehr löschen. */
+    billed?: boolean;
+    user?: { id: number };
     [key: string]: unknown;
 }
 
+/** Eingetragene Abwesenheit (bestätigt / im Kalender sichtbar). */
+export interface MocoSchedule {
+    id: number;
+    date: string;
+    am: boolean;
+    pm: boolean;
+    comment: string | null;
+    assignment: {
+        id: number;
+        name: string;
+        /** 1 = unplanbar, 2 = Feiertag, 3 = Krankheit, 4 = Urlaub, 5 = Abwesenheit */
+        code: string;
+        type: string;
+    } | null;
+}
+
+export interface MocoAbsenceRequestDay {
+    date: string;
+    am: boolean;
+    pm: boolean;
+}
+
+/** Abwesenheitsantrag – kann noch auf Freigabe warten (status = 'pending'). */
+export interface MocoAbsenceRequest {
+    id: number;
+    type: 'vacation' | 'sickness' | 'other';
+    status: 'pending' | 'approved';
+    total_days: number;
+    days: MocoAbsenceRequestDay[];
+    comment: string | null;
+    approved_at: string | null;
+}
+
 export interface MocoProfile {
+    id: number;
     first_name: string;
     [key: string]: unknown;
 }
@@ -70,8 +108,27 @@ export class ApiService {
         return this.doFetch<MocoPresence[]>(`${this.base}users/presences?from=${from}&to=${to}`);
     }
 
-    getActivities(from: string, to: string) {
-        return this.doFetch<MocoActivity[]>(`${this.base}activities?from=${from}&to=${to}`);
+    /**
+     * Ohne user_id liefert Moco alle für den Account sichtbaren Aktivitäten – bei
+     * Vorgesetzten also auch fremde. Deshalb immer auf den eigenen Nutzer einschränken.
+     */
+    getActivities(from: string, to: string, userId: number | null) {
+        const user = userId != null ? `&user_id=${userId}` : '';
+        return this.doFetch<MocoActivity[]>(`${this.base}activities?from=${from}&to=${to}${user}`);
+    }
+
+    deleteActivity(id: number) {
+        return this.doFetch(`${this.base}activities/${id}`, { method: 'DELETE' });
+    }
+
+    getSchedules(from: string, to: string) {
+        return this.doFetch<MocoSchedule[]>(`${this.base}schedules?from=${from}&to=${to}&per_page=100`);
+    }
+
+    /** /users/absence_requests kennt keinen from/to-Filter – Datumsfilter passiert im Client. */
+    getAbsenceRequests(status?: 'pending' | 'approved') {
+        const query = status ? `?status=${status}&per_page=100` : '?per_page=100';
+        return this.doFetch<MocoAbsenceRequest[]>(`${this.base}users/absence_requests${query}`);
     }
 
     getAssigned() {
